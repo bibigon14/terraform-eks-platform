@@ -7,6 +7,7 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Repo        = "terraform-eks-platform"
+      CostCenter  = "portfolio-demo"
     }
   }
 }
