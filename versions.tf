@@ -12,10 +12,10 @@ terraform {
   # (classic chicken-and-egg problem: you can't store state in a bucket
   # that Terraform itself hasn't created yet).
   backend "s3" {
-    bucket         = "REPLACE_ME-tfstate"
+    bucket         = "dstepanov-tfstate-493539461415"
     key            = "terraform-eks-platform/terraform.tfstate"
     region         = "us-west-2"
-    dynamodb_table = "REPLACE_ME-tfstate-lock"
+    dynamodb_table = "terraform-eks-platform-tfstate-lock"
     encrypt        = true
   }
 }
