@@ -31,35 +31,29 @@ actually want to find infrastructure at a new job:
 
 ## Architecture
 
-```
-                    ┌─────────────────────────────────────┐
-                    │              GitHub Actions            │
-                    │   (OIDC token, no stored AWS keys)     │
-                    └──────────────────┬──────────────────┘
-                                       │ sts:AssumeRoleWithWebIdentity
-                                       ▼
-                    ┌─────────────────────────────────────┐
-                    │     IAM Role: terraform-eks-platform-deploy │
-                    └──────────────────┬──────────────────┘
-                                       ▼
-   ┌───────────────────────────────────────────────────────────────┐
-   │                              VPC (10.20.0.0/16)                 │
-   │   ┌──────────────┐              ┌──────────────┐                │
-   │   │ Public subnet │──NAT GW──▶ │ Private subnet │                │
-   │   │   (per AZ)    │              │ (EKS nodes)   │                │
-   │   └──────────────┘              └──────┬───────┘                │
-   │                                          │                       │
-   │                          ┌───────────────▼────────────────┐      │
-   │                          │         EKS cluster              │      │
-   │                          │   OIDC provider (enable_irsa)    │      │
-   │                          │   managed node group (t3.medium) │      │
-   │                          └───────────────┬────────────────┘      │
-   └───────────────────────────────────────────┼──────────────────────┘
-                                                │ sts:AssumeRoleWithWebIdentity
-                                                │ (sub claim = namespace:sa)
-                                                ▼
-                              IAM Role: <cluster>-s3-reader
-                              (scoped to exactly one policy)
+```mermaid
+flowchart TB
+    GHA["GitHub Actions<br/>(OIDC token, no stored AWS keys)"]
+    ROLE1["IAM Role<br/>terraform-eks-platform-deploy"]
+    GHA -->|sts:AssumeRoleWithWebIdentity| ROLE1
+
+    subgraph VPC["VPC (10.20.0.0/16)"]
+        PUB["Public subnet<br/>(per AZ)"]
+        NAT(["NAT Gateway"])
+        PRIV["Private subnet<br/>(EKS nodes)"]
+        PUB --> NAT --> PRIV
+
+        subgraph EKS["EKS cluster"]
+            OIDC["OIDC provider (enable_irsa)"]
+            NODES["Managed node group (t3.medium)"]
+        end
+
+        PRIV --> EKS
+    end
+
+    ROLE1 --> VPC
+    ROLE2["IAM Role<br/>&lt;cluster&gt;-s3-reader<br/>(scoped to exactly one policy)"]
+    EKS -->|"sts:AssumeRoleWithWebIdentity<br/>(sub claim = namespace:sa)"| ROLE2
 ```
 
 ## Repo structure
