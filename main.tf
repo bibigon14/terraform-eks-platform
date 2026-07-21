@@ -28,19 +28,19 @@ module "vpc" {
   public_subnets  = local.public_subnets
   private_subnets = local.private_subnets
 
-  enable_nat_gateway = true
-  single_nat_gateway = var.single_nat_gateway
+  enable_nat_gateway   = true
+  single_nat_gateway   = var.single_nat_gateway
   enable_dns_hostnames = true
 
   # Required so the AWS Load Balancer Controller and EKS itself can
   # auto-discover which subnets to use.
   public_subnet_tags = {
-    "kubernetes.io/role/elb"                     = "1"
-    "kubernetes.io/cluster/${var.cluster_name}"  = "shared"
+    "kubernetes.io/role/elb"                    = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb"            = "1"
-    "kubernetes.io/cluster/${var.cluster_name}"  = "shared"
+    "kubernetes.io/role/internal-elb"           = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
 
@@ -85,11 +85,11 @@ module "eks" {
 module "demo_s3_reader_irsa" {
   source = "./modules/irsa-role"
 
-  role_name             = "${var.cluster_name}-s3-reader"
-  oidc_provider_arn      = module.eks.oidc_provider_arn
-  oidc_provider_url      = module.eks.cluster_oidc_issuer_url
-  namespace              = "default"
-  service_account_name   = "s3-reader"
+  role_name            = "${var.cluster_name}-s3-reader"
+  oidc_provider_arn    = module.eks.oidc_provider_arn
+  oidc_provider_url    = module.eks.cluster_oidc_issuer_url
+  namespace            = "default"
+  service_account_name = "s3-reader"
   policy_arns = [
     "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
   ]
