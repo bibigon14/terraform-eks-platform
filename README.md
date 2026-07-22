@@ -90,16 +90,43 @@ Full walkthrough in [docs/bootstrap.md](docs/bootstrap.md). Short version:
 
 ## Verified end-to-end
 
-Last full apply+destroy cycle run against a real AWS account on 2026-07-21:
+Last full apply+destroy cycle run against a real AWS account on 2026-07-21.
+Metrics from that run:
 
 - **Apply**: ~13 min (EKS control plane provisioning dominates, ~10 min on
   its own; VPC, NAT, IAM, node group parallelize around it).
 - **Destroy**: ~10 min in reverse order.
 - **Cost of the run**: ~$0.19/hour × ~40 min ≈ **$0.13**.
-- **Post-apply proof**: `kubectl get nodes` from a laptop returned one
-  `Ready` t3.medium in `10.20.47.168` (node IP inside the VPC CIDR),
-  `kubectl get pods -A` showed `aws-node`, `coredns` x2, `kube-proxy` all
-  `Running`. CI plan/apply/destroy workflows all green.
+
+Every mutating step gates on a manual approval in the `production` GitHub
+Environment - `git push` alone never touches AWS:
+
+![Apply waiting for environment approval](docs/screenshots/01-apply-environment-gate-approval.png)
+
+The apply itself is mostly EKS control plane provisioning - the `Still
+creating` counter is the honest bit of demoing IaC:
+
+![Terraform apply mid-flight, EKS still creating](docs/screenshots/02-apply-in-progress-eks-provisioning.png)
+
+Once the plane is up and the node group joins, the workflow finishes
+clean:
+
+![Apply succeeded in 13m 41s](docs/screenshots/03-apply-succeeded.png)
+
+AWS Console sees the cluster it was told to create - same name, same K8s
+version, same region as in `variables.tf`:
+
+![EKS Console showing eks-platform-demo Active](docs/screenshots/04-aws-eks-cluster-active.png)
+
+And `kubectl` from a laptop, authenticated through IAM against the fresh
+API server, sees a `Ready` node and the expected system pods:
+
+![kubectl cluster-info, get nodes, get pods -A](docs/screenshots/05-kubectl-nodes-and-pods.png)
+
+Destroy runs through the same environment gate as apply, and reverses
+everything in ~10 min:
+
+![Destroy succeeded in 12m 0s](docs/screenshots/06-destroy-succeeded.png)
 
 ## What's deliberately simplified
 
