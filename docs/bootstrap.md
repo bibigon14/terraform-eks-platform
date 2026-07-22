@@ -82,7 +82,10 @@ cat > trust-policy.json <<EOF
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:${GITHUB_ORG}/${GITHUB_REPO}:*"
+          "token.actions.githubusercontent.com:sub": [
+            "repo:${GITHUB_ORG}/${GITHUB_REPO}:*",
+            "repo:${GITHUB_ORG}@*/${GITHUB_REPO}@*:*"
+          ]
         }
       }
     }
@@ -129,8 +132,76 @@ into - every apply pauses for your manual click before it touches AWS.
 
 Open a PR against `main` and watch `terraform-plan.yml` run and comment
 the plan. Merge it, `terraform-apply.yml` fires, approve it in the
-Environment's "Review deployments" prompt, and it applies.
+Environment's "Review deployments" prompt, and it applies (~13 minutes -
+the EKS control plane alone takes ~10).
 
 When you're done demoing it:
 
 Actions tab -> Terraform Destroy -> Run workflow -> type `destroy` -> approve.
+
+## 7. Give yourself kubectl access (post-apply)
+
+The apply above creates the cluster from CI, which means the *only*
+principal with admin access to the Kubernetes API server is the CI role
+`terraform-eks-platform-deploy`. Your local IAM user (the one you use for
+`aws configure` on your laptop) is not on the list yet, so `kubectl` will
+answer with `error: You must be logged in to the server (Unauthorized)`.
+
+Fix it once, per cluster, with two AWS API calls - no Terraform changes,
+no kubeconfig hacks:
+
+```bash
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export LOCAL_IAM_USER=terraform-admin   # whatever your local user is called
+
+aws eks create-access-entry \
+  --cluster-name eks-platform-demo \
+  --region us-west-2 \
+  --principal-arn arn:aws:iam::${ACCOUNT_ID}:user/${LOCAL_IAM_USER} \
+  --type STANDARD
+
+aws eks associate-access-policy \
+  --cluster-name eks-platform-demo \
+  --region us-west-2 \
+  --principal-arn arn:aws:iam::${ACCOUNT_ID}:user/${LOCAL_IAM_USER} \
+  --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \
+  --access-scope type=cluster
+
+aws eks update-kubeconfig --region us-west-2 --name eks-platform-demo
+kubectl get nodes
+```
+
+Longer-term, the cleaner place for this is inside the `eks` module call
+via its `access_entries` argument, so it lives in Terraform state and
+survives cluster rebuilds. That's in the follow-ups list in the README.
+
+## Troubleshooting
+
+### `AccessDenied` on `sts:AssumeRoleWithWebIdentity` from the plan/apply job
+
+The action retries `Assuming role with OIDC` for ~2 minutes and then fails.
+Trust policy conditions look right, OIDC provider is registered, and
+`vars.AWS_ROLE_ARN` matches the role that exists in IAM.
+
+Cause on this account: GitHub's OIDC issuer emits a **customized subject
+claim with owner/repo IDs** - the `sub` on the token looks like
+`repo:<owner>@<ownerID>/<repo>@<repoID>:pull_request`, not the standard
+`repo:<owner>/<repo>:pull_request`. A trust policy written against only
+the standard form will never match.
+
+The trust policy in step 3 above accepts *both* forms via a two-element
+`StringLike` list. If you're forking this repo and hit the same error,
+confirm what your account is sending by looking at the failed STS call
+in CloudTrail:
+
+```bash
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+  --max-results 5 \
+  --region us-west-2 \
+  --output json \
+  | jq '.Events[].CloudTrailEvent | fromjson | .userIdentity.principalId'
+```
+
+Whatever pattern the `principalId` shows is what your trust policy needs
+to `StringLike`-match.

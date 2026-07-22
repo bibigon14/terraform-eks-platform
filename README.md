@@ -88,6 +88,19 @@ Full walkthrough in [docs/bootstrap.md](docs/bootstrap.md). Short version:
    runs and waits for your approval.
 6. When you're done: Actions -> **Terraform Destroy** -> type `destroy` -> approve.
 
+## Verified end-to-end
+
+Last full apply+destroy cycle run against a real AWS account on 2026-07-21:
+
+- **Apply**: ~13 min (EKS control plane provisioning dominates, ~10 min on
+  its own; VPC, NAT, IAM, node group parallelize around it).
+- **Destroy**: ~10 min in reverse order.
+- **Cost of the run**: ~$0.19/hour × ~40 min ≈ **$0.13**.
+- **Post-apply proof**: `kubectl get nodes` from a laptop returned one
+  `Ready` t3.medium in `10.20.47.168` (node IP inside the VPC CIDR),
+  `kubectl get pods -A` showed `aws-node`, `coredns` x2, `kube-proxy` all
+  `Running`. CI plan/apply/destroy workflows all green.
+
 ## What's deliberately simplified
 
 This is a portfolio/demo repo, not a multi-account org:
@@ -99,6 +112,31 @@ This is a portfolio/demo repo, not a multi-account org:
   would scope this to exactly the actions Terraform needs.
 - No multi-region, no Terraform workspaces per environment - the pattern
   extends cleanly to both, just not built out here.
+
+## Known follow-ups
+
+Things I know I'd do next if this were going past the demo:
+
+- **Move cluster admin access into Terraform.** Right now the `eks` module
+  is called without an `access_entries` argument, so post-apply you have
+  to run `aws eks create-access-entry` once to give your laptop kubectl
+  access (see [docs/bootstrap.md](docs/bootstrap.md) step 7). Cleaner
+  place is inline in the module call, so admin list lives in state.
+- **Scope the deploy IAM role down from `AdministratorAccess`** to the
+  actual set of `ec2:*`, `eks:*`, `iam:*` (with `PassRole` conditions),
+  `s3:*` on the state bucket, `dynamodb:*` on the lock table, and
+  `logs:*` actions Terraform actually calls during apply/destroy.
+- **Add `tflint` + `trivy config` (or `tfsec`)** to the plan workflow.
+  IaC security scanning on every PR is table stakes; the plumbing is a
+  10-line addition to `terraform-plan.yml`.
+- **Restrict `cluster_endpoint_public_access_cidrs`.** Currently the
+  public endpoint is open to `0.0.0.0/0` (behind IAM+TLS auth, but still
+  more surface than needed). A real deploy would lock this to the office
+  egress and the CI runner ranges.
+- **pre-commit hooks** (`terraform_fmt`, `terraform_validate`,
+  `terraform_docs`) so formatting drift and stale variable tables never
+  reach a PR in the first place - the first CI run of this repo caught a
+  fmt issue that pre-commit would have caught locally.
 
 ## Related
 
